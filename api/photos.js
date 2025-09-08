@@ -1,4 +1,3 @@
-
 export default async function handler(req, res) {
   try {
     const {
@@ -8,20 +7,12 @@ export default async function handler(req, res) {
       GOOGLE_PHOTOS_ALBUM_ID,
     } = process.env;
 
-    console.log("🔹 Iniciando /api/photos");
-    console.log("Variáveis de ambiente:", {
-      client_id: GOOGLE_CLIENT_ID ? "ok" : "missing",
-      client_secret: GOOGLE_CLIENT_SECRET ? "ok" : "missing",
-      refresh_token: GOOGLE_REFRESH_TOKEN ? "ok" : "missing",
-      album_id: GOOGLE_PHOTOS_ALBUM_ID ? "ok" : "missing",
-    });
-
     if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET || !GOOGLE_REFRESH_TOKEN || !GOOGLE_PHOTOS_ALBUM_ID) {
-      throw new Error("❌ Variáveis de ambiente faltando");
+      return res.status(500).json({ error: "Variáveis de ambiente faltando" });
     }
 
-    // 1️⃣ Troca refresh_token por access_token
-    const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
+    // Gera access_token a partir do refresh token
+    const tokenResp = await fetch("https://oauth2.googleapis.com/token", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
@@ -32,62 +23,38 @@ export default async function handler(req, res) {
       }),
     });
 
-    const tokenData = await tokenResponse.json();
-    console.log("🔹 tokenData:", tokenData);
+    const tokenData = await tokenResp.json();
 
     if (!tokenData.access_token) {
-      throw new Error("❌ Falha ao gerar access_token");
+      return res.status(500).json({ error: "Falha ao gerar access_token", details: tokenData });
     }
 
     const accessToken = tokenData.access_token;
 
-    // 2️⃣ Buscar todas as fotos do álbum
-    let photos = [];
-    let pageToken = null;
+    // Busca fotos do álbum
+    const response = await fetch("https://photoslibrary.googleapis.com/v1/mediaItems:search", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ albumId: GOOGLE_PHOTOS_ALBUM_ID, pageSize: 100 }),
+    });
 
-    do {
-      const body = { albumId: GOOGLE_PHOTOS_ALBUM_ID, pageSize: 50 };
-      if (pageToken) body.pageToken = pageToken;
+    const data = await response.json();
 
-      console.log("🔹 Requisitando fotos com body:", body);
+    if (data.error) {
+      return res.status(500).json({ error: "Google Photos API Error", details: data.error });
+    }
 
-      const response = await fetch(
-        "https://photoslibrary.googleapis.com/v1/mediaItems:search",
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(body),
-        }
-      );
-
-      const data = await response.json();
-      console.log("🔹 Dados recebidos da API do Google Photos:", data);
-
-      if (data.error) {
-        throw new Error(`Google Photos API Error: ${JSON.stringify(data.error)}`);
-      }
-
-      if (data.mediaItems) {
-        photos = photos.concat(
-          data.mediaItems.map((item, i) => ({
-            src: item.baseUrl + "=w800-h600",
-            category: "all",
-            alt: item.filename || `Foto ${i + 1}`,
-          }))
-        );
-      }
-
-      pageToken = data.nextPageToken || null;
-    } while (pageToken);
-
-    console.log(`🔹 Total de fotos carregadas: ${photos.length}`);
+    const photos = (data.mediaItems || []).map(item => ({
+      src: item.baseUrl + "=w800-h600",
+      alt: item.filename,
+    }));
 
     res.status(200).json({ photos });
   } catch (err) {
-    console.error("❌ ERRO NO /api/photos:", err);
+    console.error(err);
     res.status(500).json({ error: err.message });
   }
-}
+      }
