@@ -22,58 +22,39 @@ export default async function handler(req, res) {
     });
 
     const tokenData = await tokenResponse.json();
+    if (!tokenData.access_token) throw new Error("Falha ao gerar access_token");
 
-    if (!tokenData.access_token) {
-      return res
-        .status(500)
-        .json({ error: "Falha ao gerar access_token", details: tokenData });
-    }
+    // 2. Função para buscar todas as fotos do álbum
+    let photos = [];
+    let pageToken = null;
 
-    // 2. Função auxiliar para buscar todas as páginas
-    async function fetchAllPhotos(accessToken, albumId) {
-      let photos = [];
-      let pageToken = null;
+    do {
+      const body = { albumId: GOOGLE_PHOTOS_ALBUM_ID, pageSize: 50 };
+      if (pageToken) body.pageToken = pageToken;
 
-      do {
-        const body = {
-          albumId,
-          pageSize: 50,
-        };
-        if (pageToken) body.pageToken = pageToken;
-
-        const response = await fetch(
-          "https://photoslibrary.googleapis.com/v1/mediaItems:search",
-          {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${accessToken}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify(body),
-          }
-        );
-
-        const data = await response.json();
-
-        if (data.mediaItems) {
-          photos = photos.concat(data.mediaItems.map((item) => item.baseUrl));
+      const response = await fetch(
+        "https://photoslibrary.googleapis.com/v1/mediaItems:search",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${tokenData.access_token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(body),
         }
+      );
 
-        pageToken = data.nextPageToken || null;
-      } while (pageToken);
+      const data = await response.json();
+      if (data.mediaItems) {
+        photos = photos.concat(data.mediaItems.map((item) => item.baseUrl));
+      }
+      pageToken = data.nextPageToken || null;
+    } while (pageToken);
 
-      return photos;
-    }
-
-    // 3. Busca todas as fotos do álbum
-    const photos = await fetchAllPhotos(
-      tokenData.access_token,
-      GOOGLE_PHOTOS_ALBUM_ID
-    );
-
+    // 3. Retorna todas as fotos
     res.status(200).json({ photos });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: "Erro interno" });
+    res.status(500).json({ error: err.message });
   }
 }
