@@ -1,3 +1,4 @@
+// /api/photos.js
 import fetch from "node-fetch";
 
 export default async function handler(req, res) {
@@ -9,7 +10,7 @@ export default async function handler(req, res) {
       GOOGLE_PHOTOS_ALBUM_ID,
     } = process.env;
 
-    // 1. Troca refresh_token por access_token
+    // 1️⃣ Troca refresh_token por access_token
     const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -24,7 +25,9 @@ export default async function handler(req, res) {
     const tokenData = await tokenResponse.json();
     if (!tokenData.access_token) throw new Error("Falha ao gerar access_token");
 
-    // 2. Função para buscar todas as fotos do álbum
+    const accessToken = tokenData.access_token;
+
+    // 2️⃣ Buscar todas as fotos do álbum
     let photos = [];
     let pageToken = null;
 
@@ -37,7 +40,7 @@ export default async function handler(req, res) {
         {
           method: "POST",
           headers: {
-            Authorization: `Bearer ${tokenData.access_token}`,
+            Authorization: `Bearer ${accessToken}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify(body),
@@ -46,12 +49,19 @@ export default async function handler(req, res) {
 
       const data = await response.json();
       if (data.mediaItems) {
-        photos = photos.concat(data.mediaItems.map((item) => item.baseUrl));
+        photos = photos.concat(
+          data.mediaItems.map((item, i) => ({
+            src: item.baseUrl + "=w800-h600", // tamanho ajustado
+            category: "all", // aqui você pode categorizar
+            alt: item.filename || `Foto ${i + 1}`,
+          }))
+        );
       }
+
       pageToken = data.nextPageToken || null;
     } while (pageToken);
 
-    // 3. Retorna todas as fotos
+    // 3️⃣ Retorna as fotos já formatadas
     res.status(200).json({ photos });
   } catch (err) {
     console.error(err);
