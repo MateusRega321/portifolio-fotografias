@@ -24,33 +24,52 @@ export default async function handler(req, res) {
     const tokenData = await tokenResponse.json();
 
     if (!tokenData.access_token) {
-      return res.status(500).json({ error: "Falha ao gerar access_token", details: tokenData });
+      return res
+        .status(500)
+        .json({ error: "Falha ao gerar access_token", details: tokenData });
     }
 
-    // 2. Busca as fotos do álbum
-    const photosResponse = await fetch(
-      "https://photoslibrary.googleapis.com/v1/mediaItems:search",
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${tokenData.access_token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          albumId: GOOGLE_PHOTOS_ALBUM_ID,
+    // 2. Função auxiliar para buscar todas as páginas
+    async function fetchAllPhotos(accessToken, albumId) {
+      let photos = [];
+      let pageToken = null;
+
+      do {
+        const body = {
+          albumId,
           pageSize: 50,
-        }),
-      }
-    );
+        };
+        if (pageToken) body.pageToken = pageToken;
 
-    const photosData = await photosResponse.json();
+        const response = await fetch(
+          "https://photoslibrary.googleapis.com/v1/mediaItems:search",
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(body),
+          }
+        );
 
-    if (!photosData.mediaItems) {
-      return res.status(500).json({ error: "Não foi possível buscar fotos", details: photosData });
+        const data = await response.json();
+
+        if (data.mediaItems) {
+          photos = photos.concat(data.mediaItems.map((item) => item.baseUrl));
+        }
+
+        pageToken = data.nextPageToken || null;
+      } while (pageToken);
+
+      return photos;
     }
 
-    // 3. Retorna só as URLs (que é o que seu script.js espera)
-    const photos = photosData.mediaItems.map((item) => item.baseUrl);
+    // 3. Busca todas as fotos do álbum
+    const photos = await fetchAllPhotos(
+      tokenData.access_token,
+      GOOGLE_PHOTOS_ALBUM_ID
+    );
 
     res.status(200).json({ photos });
   } catch (err) {
